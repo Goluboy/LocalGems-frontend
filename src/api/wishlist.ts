@@ -19,6 +19,75 @@ const normalizeWishlistPayload = (payload: unknown): unknown[] => {
   return [];
 };
 
+const normalizePhotoUrl = (value: unknown): string | undefined => {
+  if (typeof value !== "string") {
+    return undefined;
+  }
+
+  const trimmed = value.trim().replace(/^['"]|['"]$/g, "");
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const withProtocol = trimmed.startsWith("http://")
+    ? trimmed.replace(/^http:\/\//, "https://")
+    : trimmed.startsWith("https://") || trimmed.startsWith("//")
+      ? trimmed.startsWith("//") ? `https:${trimmed}` : trimmed
+      : `https://${trimmed}`;
+
+  if (withProtocol.includes("images.unsplash.com")) {
+    return withProtocol.split("?")[0];
+  }
+
+  return withProtocol;
+};
+
+const extractPhotoUrl = (item: Record<string, unknown>): string | undefined => {
+  const seen = new WeakSet<object>();
+  const stack: Array<{ value: unknown; path: string[] }> = [{ value: item, path: [] }];
+
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) {
+      continue;
+    }
+
+    const { value, path } = current;
+
+    if (typeof value === "string") {
+      const normalized = normalizePhotoUrl(value);
+      if (normalized) {
+        const looksLikePhotoKey = path.some((segment) => /photo|image/i.test(segment));
+        if (looksLikePhotoKey || /^(https?:\/\/|\/\/)/i.test(value.trim())) {
+          return normalized;
+        }
+      }
+      continue;
+    }
+
+    if (Array.isArray(value)) {
+      for (const entry of value.slice().reverse()) {
+        stack.push({ value: entry, path });
+      }
+      continue;
+    }
+
+    if (value && typeof value === "object") {
+      if (seen.has(value)) {
+        continue;
+      }
+      seen.add(value);
+
+      const record = value as Record<string, unknown>;
+      for (const [key, child] of Object.entries(record).reverse()) {
+        stack.push({ value: child, path: [...path, key] });
+      }
+    }
+  }
+
+  return undefined;
+};
+
 const mapWishlistItem = (item: Record<string, unknown>): Place => {
   const payload = item.place && typeof item.place === "object"
     ? (item.place as Record<string, unknown>)
@@ -33,6 +102,7 @@ const mapWishlistItem = (item: Record<string, unknown>): Place => {
   const guid = typeof placeId === "string" && isGuidLike(placeId) ? placeId : undefined;
   const latitude = Number(payload.latitude ?? payload.lat ?? item.latitude ?? item.lat ?? 56.8389);
   const longitude = Number(payload.longitude ?? payload.lng ?? item.longitude ?? item.lng ?? 60.6057);
+  const photoUrl = extractPhotoUrl(payload);
 
   return {
     id: placeId,
@@ -49,6 +119,7 @@ const mapWishlistItem = (item: Record<string, unknown>): Place => {
         : typeof item.description === "string"
           ? item.description
           : undefined,
+    photoUrl,
   };
 };
 

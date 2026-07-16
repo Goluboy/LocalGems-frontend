@@ -2,7 +2,7 @@
 import { create } from "zustand";
 import { persist, createJSONStorage } from "zustand/middleware";
 import { authApi } from "../api/auth";
-import { placesApi } from "../api/places";
+import { placesApi, type CreateSuggestionPayload } from "../api/places";
 import { wishlistApi } from "../api/wishlist";
 import { type Place } from "../data/mockPlaces";
 
@@ -20,7 +20,7 @@ interface Store {
   removeFromRoute: (id: number | string) => void;
   clearRoute: () => void;
   setPlaces: (places: Place[]) => void;
-  addPlace: (place: Omit<Place, "id">) => Promise<void>;
+  addPlace: (placeData: CreateSuggestionPayload) => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string) => Promise<void>;
   logout: () => void;
@@ -99,19 +99,23 @@ export const useStore = create<Store>()(
 
       setPlaces: (places) => set({ places }),
 
-      addPlace: async (place) => {
-        const createdPlace = await placesApi.createSuggestion({
-          name: place.name,
-          description: place.description ?? "",
-          category: place.category,
-          latitude: place.lat,
-          longitude: place.lng,
-          tags: [],
-        });
-
-        set((state) => ({
-          places: [...state.places, createdPlace],
-        }));
+      addPlace: async (placeData: CreateSuggestionPayload) => {
+        try {
+          const createdPlace = await placesApi.createSuggestion({
+              name: placeData.name,
+              description: placeData.description ?? "",
+              category: placeData.category,
+              latitude: placeData.latitude,
+              longitude: placeData.longitude,
+              tags: placeData.tags ?? [],
+              photos: placeData.photos ?? [], // ✅ Теперь TS знает, что это File[]
+            });
+          
+          console.log("Место успешно создано:", createdPlace);
+        } catch (error) {
+          console.error("Ошибка при создании места:", error);
+          throw error;
+        }        
       },
 
       loadFavorites: async () => {

@@ -9,7 +9,9 @@ export interface Place {
   rating?: number;
   lat: number;
   lng: number;
-  description?: string; // добавлено
+  description?: string;
+  photoUrl?: string;
+  photos?: string[]; 
 }
 
 export const mockPlaces: Place[] = [
