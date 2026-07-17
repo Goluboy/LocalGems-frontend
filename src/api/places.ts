@@ -1,3 +1,4 @@
+// src/api/places.ts
 import { apiClient } from "./client";
 import { categories } from "../data/categories";
 import type { Place } from "../data/mockPlaces";
@@ -326,4 +327,12 @@ export const placesApi = {
       photos: photoUrls,
     };
   },
+
+  // ✅ ДОБАВЛЯЕМ МЕТОД approveSuggestion
+  approveSuggestion: async (id: string, comment?: string) => {
+    const response = await apiClient.post(`/suggestions/${id}/approve`, { comment });
+    return response.data;
+  },
 };
+
+export { mapCategoryCodeToLabel };
