@@ -105,10 +105,11 @@ export const useStore = create<Store>()(
               name: placeData.name,
               description: placeData.description ?? "",
               category: placeData.category,
+              address: placeData.address,
               latitude: placeData.latitude,
               longitude: placeData.longitude,
               tags: placeData.tags ?? [],
-              photos: placeData.photos ?? [], // ✅ Теперь TS знает, что это File[]
+              photos: placeData.photos ?? [],
             });
           
           console.log("Место успешно создано:", createdPlace);

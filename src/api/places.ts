@@ -9,23 +9,13 @@ interface PlacesQueryParams {
   size?: number;
 }
 
-interface PlaceApiPayload {
-  name: string;
-  description: string;
-  category: string;
-  latitude: number;
-  longitude: number;
-  tags?: string[];
-  photoUrls?: string[];
-  photos?: File[];
-}
-
 export interface CreateSuggestionFormData {
   name: string;
   description?: string;
-  category: string;
+  category: number;
   latitude: number;
   longitude: number;
+  address: string;
   tags?: string[];
   photos: File[];
 }
@@ -36,6 +26,7 @@ export interface CreateSuggestionPayload {
   category: number;
   latitude: number;
   longitude: number;
+  address: string;
   tags?: string[];
   photos?: File[];
 }
@@ -295,7 +286,7 @@ export const placesApi = {
     const formData = new FormData();
     formData.append('name', payload.name);
     formData.append('description', payload.description ?? '');
-    formData.append('category', payload.category);
+    formData.append('category', payload.category.toString());
     formData.append('latitude', payload.latitude.toString());
     formData.append('longitude', payload.longitude.toString());
     
@@ -325,7 +316,7 @@ export const placesApi = {
     return {
       id: response.data.id as string,
       name: response.data.name as string,
-      category: payload.category,
+      category: payload.category.toString(),
       address: '',
       status: 'moderation',
       lat: payload.latitude,
