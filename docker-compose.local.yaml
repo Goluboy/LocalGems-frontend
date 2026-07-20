@@ -1,19 +1,8 @@
 services:
-  # Frontend (без Traefik, просто пробрасываем порт)
-  localgems-web:
-    image: goluboy/localgems-web:local  # ⚠️ Используем локальный образ
-    container_name: localgems-web-local
-    restart: unless-stopped
-    ports:
-      - "3000:80"  # Открываем на localhost:3000
-    networks:
-      - localgems-net
-    depends_on:
-      - localgems-api
 
   # Backend
   localgems-api:
-    image: goluboy/localgems-api:v1.0.2
+    image: goluboy/localgems-api:v1.0.3
     container_name: localgems-api-local
     restart: unless-stopped
     environment:

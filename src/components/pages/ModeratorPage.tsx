@@ -1,5 +1,4 @@
 /* eslint-disable react-hooks/set-state-in-effect */
-// src/components/pages/ModeratorPage.tsx
 import { useState, useMemo, useEffect } from "react";
 import type { Place } from "../../data/mockPlaces";
 import { categories } from "../../data/categories";
@@ -10,14 +9,16 @@ import { placesApi } from "../../api/places";
 import { moderationApi } from "../../api/moderation";
 import { mapCategoryCodeToLabel } from "../../api/places";
 
-const statuses = ["Все статусы", "Опубликовано", "На модерации"];
+const ITEMS_PER_PAGE = 10;
+
+const statusOptions = [
+  { value: "published", label: "Опубликовано" },
+  { value: "moderation", label: "На модерации" },
+];
 
 const normalizeModerationPlaces = (payload: unknown): Place[] => {
   const extractItems = (value: unknown): unknown[] => {
-    if (Array.isArray(value)) {
-      return value;
-    }
-
+    if (Array.isArray(value)) return value;
     if (value && typeof value === "object") {
       const record = value as Record<string, unknown>;
       const candidates = [
@@ -28,65 +29,52 @@ const normalizeModerationPlaces = (payload: unknown): Place[] => {
         record.results,
         record.content,
       ];
-      const arrayCandidate = candidates.find((candidate): candidate is unknown[] => Array.isArray(candidate));
-      return arrayCandidate ?? [];
+      const found = candidates.find((c): c is unknown[] => Array.isArray(c));
+      return found ?? [];
     }
-
     return [];
   };
 
   const items = Array.isArray(payload) ? payload : extractItems(payload);
 
   return items
-    .map((item): Place | null => {  // ⬅️ Явно указываем возвращаемый тип
+    .map((item): Place | null => {
       const record = item as Record<string, unknown>;
-      const latitude = Number(record.latitude ?? record.lat ?? 56.8389);
-      const longitude = Number(record.longitude ?? record.lng ?? 60.6057);
       const rawId = record.id ?? record.placeId ?? record.suggestionId;
       const id = rawId !== undefined ? String(rawId) : null;
+      if (!id) return null;
 
-      if (!id) {
-        console.warn("⚠️ Пропуск элемента без id:", record);
-        return null;
-      }
+      const latitude = Number(record.latitude ?? record.lat ?? 56.8389);
+      const longitude = Number(record.longitude ?? record.lng ?? 60.6057);
 
-      const categoryLabel = mapCategoryCodeToLabel(record.category);
-
-      // ⬅️ Явно приводим к типу Place
       return {
-        id: id as string | number,  // Приводим к совместимому типу
+        id,
         name: String(record.name ?? record.title ?? record.placeName ?? "Без названия"),
-        category: categoryLabel,
+        category: mapCategoryCodeToLabel(record.category),
         address: String(record.address ?? record.location ?? "Адрес не указан"),
         status: "moderation" as const,
         rating: record.rating ? Number(record.rating) : undefined,
         lat: Number.isFinite(latitude) ? latitude : 56.8389,
         lng: Number.isFinite(longitude) ? longitude : 60.6057,
         description: typeof record.description === "string" ? record.description : undefined,
-      } as Place;  // ⬅️ Type assertion
+      } as Place;
     })
-    .filter((p): p is Place => p !== null);  // ⬅️ Теперь type predicate работает корректно
+    .filter((p): p is Place => p !== null);
 };
 
-const ITEMS_PER_PAGE = 20;
-
 const ModeratorPage = () => {
+  // Все места (общий список)
   const [allPlaces, setAllPlaces] = useState<Place[]>([]);
   const [moderationPlaces, setModerationPlaces] = useState<Place[]>([]);
-  const [places, setPlaces] = useState<Place[]>([]);
-  const [hasNextPage, setHasNextPage] = useState(false);
   const [search, setSearch] = useState("");
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
-  const [selectedStatuses, setSelectedStatuses] = useState<string[]>([]);
+  const [selectedStatuses, setSelectedStatuses] = useState<string[]>(["published", "moderation"]);
   const [activeTab, setActiveTab] = useState<"all" | "moderation">("all");
-
+  const [currentPage, setCurrentPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingPlace, setEditingPlace] = useState<Place | null>(null);
-
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const [isStatusDropdownOpen, setIsStatusDropdownOpen] = useState(false);
-
-  // ⬇️ ИЗМЕНЕНО: onConfirm теперь может быть async
   const [confirmModal, setConfirmModal] = useState<{
     isOpen: boolean;
     message: string;
@@ -96,45 +84,41 @@ const ModeratorPage = () => {
     message: "",
     onConfirm: () => {},
   });
-
-  const [currentPage, setCurrentPage] = useState(1);
-
-  // ⬇️ НОВОЕ: ID места, которое сейчас обрабатывается (approve/reject)
   const [processingId, setProcessingId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  // Загрузка всех данных (опубликованные + предложенные) при монтировании и при изменении активной вкладки
+  const loadAllData = async () => {
+    setLoading(true);
+    try {
+      const [published, moderation] = await Promise.all([
+        placesApi.list({ size: 10000 }), // получить все опубликованные
+        moderationApi.listQueue(1, 10000), // получить все предложенные
+      ]);
+      const normalizedModeration = normalizeModerationPlaces(moderation);
+      const combined = [...published, ...normalizedModeration];
+      setAllPlaces(combined);
+      setModerationPlaces(normalizedModeration);
+      setCurrentPage(1);
+    } catch (error) {
+      console.error("Failed to load all data", error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
-    const loadPlaces = async () => {
-      if (activeTab !== "all") return;
-      try {
-        const remotePlaces = await placesApi.listPage(currentPage, ITEMS_PER_PAGE);
-        setAllPlaces(remotePlaces);
-        setPlaces(remotePlaces);
-        setHasNextPage(remotePlaces.length === ITEMS_PER_PAGE);
-      } catch (error) {
-        console.error("Failed to load moderator places", error);
-      }
-    };
-    loadPlaces();
-  }, [activeTab, currentPage]);
+    loadAllData();
+  }, []);
 
-  useEffect(() => {
-    if (activeTab !== "moderation") return;
-    const loadModerationQueue = async () => {
-      try {
-        const queuePayload = await moderationApi.listQueue(currentPage, ITEMS_PER_PAGE);
-        const nextPlaces = normalizeModerationPlaces(queuePayload);
-        setModerationPlaces(nextPlaces);
-        setPlaces(nextPlaces);
-        setHasNextPage(nextPlaces.length === ITEMS_PER_PAGE);
-      } catch (error) {
-        console.error("Failed to load moderation queue", error);
-      }
-    };
-    loadModerationQueue();
-  }, [activeTab, currentPage]);
+  // Перезагрузка после утверждения/отклонения
+  const refreshData = async () => {
+    await loadAllData();
+  };
 
+  // Фильтрация общего списка
   const filteredPlaces = useMemo(() => {
-    let filtered = places;
+    let filtered = allPlaces;
     if (search.trim()) {
       filtered = filtered.filter((p) =>
         p.name.toLowerCase().includes(search.toLowerCase())
@@ -150,19 +134,30 @@ const ModeratorPage = () => {
         selectedStatuses.includes(p.status)
       );
     }
-    if (activeTab === "moderation") {
-      filtered = filtered.filter((p) => p.status === "moderation");
-    }
     return filtered;
-  }, [places, search, selectedCategories, selectedStatuses, activeTab]);
+  }, [allPlaces, search, selectedCategories, selectedStatuses]);
 
-  const currentPlaces = filteredPlaces;
+  // Если активна вкладка "moderation", показываем только предложенные (без пагинации, можно сразу все)
+  const displayPlaces = useMemo(() => {
+    if (activeTab === "moderation") {
+      // Показываем все предложенные (без пагинации, так как их обычно немного)
+      return filteredPlaces.filter((p) => p.status === "moderation");
+    }
+    // Для вкладки "all" – пагинация по 10 записей
+    const start = (currentPage - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    return filteredPlaces.slice(start, end);
+  }, [activeTab, filteredPlaces, currentPage]);
 
+  const totalAll = filteredPlaces.length;
+  const totalModeration = filteredPlaces.filter((p) => p.status === "moderation").length;
+  const totalPages = Math.ceil(totalAll / ITEMS_PER_PAGE);
+
+  // Сброс страницы при изменении фильтров
   useEffect(() => {
     setCurrentPage(1);
   }, [search, selectedCategories, selectedStatuses, activeTab]);
 
-  // ⬇️ ИЗМЕНЕНО: openConfirm принимает async-коллбэк
   const openConfirm = (message: string, onConfirm: () => void | Promise<void>) => {
     setConfirmModal({ isOpen: true, message, onConfirm });
   };
@@ -171,132 +166,56 @@ const ModeratorPage = () => {
     setConfirmModal({ isOpen: false, message: "", onConfirm: () => {} });
   };
 
-  const handleEdit = (id: number | string) => {
-    const place = places.find((p) => p.id === id);
+  const handleEdit = (id: string) => {
+    const place = allPlaces.find((p) => String(p.id) === id);
     if (place) {
       setEditingPlace(place);
       setIsModalOpen(true);
     }
   };
 
-  // ⬇️ ГЛАВНОЕ ИЗМЕНЕНИЕ: handleDelete теперь отправляет запрос на бэкенд
-  const handleDelete = (id: number | string) => {
-    const stringId = String(id);
-
-    // Защита от двойного клика
-    if (processingId === stringId) return;
-
+  const handleDelete = (id: string) => {
+    if (processingId === id) return;
     openConfirm("Вы уверены, что хотите отклонить это предложение?", async () => {
       try {
-        setProcessingId(stringId);
-        console.log("🔵 Отправка запроса на отклонение, ID:", stringId);
-
-        // ⚠️ Сначала запрос на сервер (POST /api/moderation/suggestions/{id}/reject)
-        await moderationApi.rejectSuggestion(stringId, "Отклонено модератором");
-
-        console.log("🟢 Отклонение успешно");
-
-        // ✅ Только после успешного ответа обновляем UI
-        setPlaces((prev) => prev.filter((p) => p.id !== stringId));
-        setAllPlaces((prev) => prev.filter((p) => p.id !== stringId));
-        setModerationPlaces((prev) => prev.filter((p) => p.id !== stringId));
-
+        setProcessingId(id);
+        await moderationApi.rejectSuggestion(id, "Отклонено модератором");
+        await refreshData();
         closeConfirm();
-      } catch (error: any) {
-        console.error("🔴 Ошибка отклонения:", error);
-
-        let message = "Не удалось отклонить предложение. Попробуйте позже.";
-        if (error.response) {
-          const status = error.response.status;
-          const data = error.response.data;
-          console.log("Статус ответа:", status);
-          console.log("Данные ошибки:", data);
-
-          if (data?.message) {
-            message = data.message;
-          } else if (status === 401) {
-            message = "Сессия истекла. Войдите заново.";
-          } else if (status === 404) {
-            message = "Предложение не найдено. Возможно, оно уже обработано.";
-          } else if (status === 400) {
-            message = "Неверный запрос. Проверьте данные.";
-          } else if (status === 403) {
-            message = "Недостаточно прав для этого действия.";
-          }
-        } else if (error.request) {
-          message = "Сервер не отвечает. Проверьте соединение.";
-        }
-
-        // ❌ При ошибке НЕ закрываем модалку, чтобы пользователь мог повторить
-        alert(message);
+      } catch (error) {
+        alert("Не удалось отклонить предложение. Попробуйте позже.");
       } finally {
         setProcessingId(null);
       }
     });
   };
 
-  // ⬇️ ИЗМЕНЕНО: используем moderationApi вместо placesApi для правильного URL
-  const handleApprove = async (id: number | string) => {
-    const stringId = String(id);
-
-    // Защита от двойного клика
-    if (processingId === stringId) return;
-
+  const handleApprove = async (id: string) => {
+    if (processingId === id) return;
     try {
-      setProcessingId(stringId);
-      console.log("🔵 Отправка запроса на утверждение, ID:", stringId);
-
-      // ⚠️ POST /api/moderation/suggestions/{id}/approve
-      await moderationApi.approveSuggestion(stringId);
-
-      console.log("🟢 Утверждение успешно");
-
-      setPlaces((prev) => prev.filter((p) => p.id !== stringId));
-      setAllPlaces((prev) => prev.filter((p) => p.id !== stringId));
-      setModerationPlaces((prev) => prev.filter((p) => p.id !== stringId));
-    } catch (error: any) {
-      console.error("🔴 Ошибка утверждения:", error);
-
-      let message = "Не удалось утвердить место. Попробуйте позже.";
-      if (error.response) {
-        const status = error.response.status;
-        const data = error.response.data;
-        console.log("Статус ответа:", status);
-        console.log("Данные ошибки:", data);
-
-        if (data?.message) {
-          message = data.message;
-        } else if (status === 401) {
-          message = "Сессия истекла. Войдите заново.";
-        } else if (status === 404) {
-          message = "Место не найдено. Возможно, оно уже обработано.";
-        } else if (status === 400) {
-          message = "Неверный запрос. Проверьте данные.";
-        } else if (status === 403) {
-          message = "Недостаточно прав для этого действия.";
-        }
-      } else if (error.request) {
-        message = "Сервер не отвечает. Проверьте соединение.";
-      }
-
-      alert(message);
+      setProcessingId(id);
+      await moderationApi.approveSuggestion(id);
+      await refreshData();
+    } catch (error) {
+      alert("Не удалось утвердить место. Попробуйте позже.");
     } finally {
       setProcessingId(null);
     }
   };
 
   const handleSavePlace = (updatedPlace: Place) => {
-    setPlaces(
-      places.map((p) =>
-        p.id === updatedPlace.id ? updatedPlace : p
-      )
+    setAllPlaces((prev) =>
+      prev.map((p) => (String(p.id) === String(updatedPlace.id) ? updatedPlace : p))
+    );
+    setModerationPlaces((prev) =>
+      prev.map((p) => (String(p.id) === String(updatedPlace.id) ? updatedPlace : p))
     );
   };
 
   const handleResetFilters = () => {
     setSearch("");
     setSelectedCategories([]);
-    setSelectedStatuses([]);
+    setSelectedStatuses(["published", "moderation"]);
   };
 
   const toggleCategory = (cat: string) => {
@@ -305,29 +224,28 @@ const ModeratorPage = () => {
       return;
     }
     setSelectedCategories((prev) => {
-      if (prev.length === 0) return [cat];
-      if (prev.includes(cat)) {
-        return prev.filter((c) => c !== cat);
-      } else {
-        return [...prev, cat];
-      }
+      if (prev.includes(cat)) return prev.filter((c) => c !== cat);
+      return [...prev, cat];
     });
   };
 
   const toggleStatus = (status: string) => {
-    if (status === "Все статусы") {
-      setSelectedStatuses([]);
-      return;
-    }
-    const realValue = status === "Опубликовано" ? "published" : "moderation";
     setSelectedStatuses((prev) => {
-      if (prev.length === 0) return [realValue];
-      if (prev.includes(realValue)) {
-        return prev.filter((s) => s !== realValue);
-      } else {
-        return [...prev, realValue];
-      }
+      const next = prev.includes(status)
+        ? prev.filter((s) => s !== status)
+        : [...prev, status];
+      if (next.length === 0) return ["published", "moderation"];
+      return next;
     });
+  };
+
+  const getStatusLabel = () => {
+    if (selectedStatuses.length === 2) return "Статусы";
+    if (selectedStatuses.length === 1) {
+      const found = statusOptions.find((opt) => opt.value === selectedStatuses[0]);
+      return found ? found.label : "Статусы";
+    }
+    return "Статусы";
   };
 
   const getCategoryLabel = () => {
@@ -336,24 +254,15 @@ const ModeratorPage = () => {
     return `Категории (${selectedCategories.length})`;
   };
 
-  const getStatusLabel = () => {
-    if (selectedStatuses.length === 0) return "Статусы";
-    if (selectedStatuses.length === 1) {
-      const map: Record<string, string> = {
-        published: "Опубликовано",
-        moderation: "На модерации",
-      };
-      return map[selectedStatuses[0]] || selectedStatuses[0];
-    }
-    return `Статусы (${selectedStatuses.length})`;
-  };
+  if (loading) {
+    return <div className="p-6 text-center text-gray-500">Загрузка...</div>;
+  }
 
   return (
     <div className="p-6 bg-gray-50 min-h-[calc(100vh-64px)]">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-900 mb-6">Управление местами</h1>
 
-        {/* Фильтры */}
         <div className="flex flex-wrap items-center gap-4 mb-6">
           <div className="relative">
             <input
@@ -382,9 +291,7 @@ const ModeratorPage = () => {
             {isCategoryDropdownOpen && (
               <div className="absolute top-11 left-0 w-[180px] max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg z-20">
                 {["Все категории", ...categories].map((cat) => {
-                  const isChecked = cat === "Все категории"
-                    ? selectedCategories.length === 0
-                    : selectedCategories.includes(cat);
+                  const isChecked = cat === "Все категории" ? selectedCategories.length === 0 : selectedCategories.includes(cat);
                   return (
                     <label key={cat} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer">
                       <input
@@ -411,23 +318,17 @@ const ModeratorPage = () => {
             </button>
             {isStatusDropdownOpen && (
               <div className="absolute top-11 left-0 w-[180px] max-h-48 overflow-y-auto bg-white border border-gray-200 rounded-lg shadow-lg z-20">
-                {statuses.map((status) => {
-                  const realValue = status === "Опубликовано" ? "published" : "moderation";
-                  const isChecked = status === "Все статусы"
-                    ? selectedStatuses.length === 0
-                    : selectedStatuses.includes(realValue);
-                  return (
-                    <label key={status} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={isChecked}
-                        onChange={() => toggleStatus(status === "Все статусы" ? "Все статусы" : realValue)}
-                        className="w-4 h-4 accent-blue-600"
-                      />
-                      <span className="text-sm text-gray-700">{status}</span>
-                    </label>
-                  );
-                })}
+                {statusOptions.map((opt) => (
+                  <label key={opt.value} className="flex items-center gap-2 px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={selectedStatuses.includes(opt.value)}
+                      onChange={() => toggleStatus(opt.value)}
+                      className="w-4 h-4 accent-blue-600"
+                    />
+                    <span className="text-sm text-gray-700">{opt.label}</span>
+                  </label>
+                ))}
               </div>
             )}
           </div>
@@ -440,7 +341,6 @@ const ModeratorPage = () => {
           </button>
         </div>
 
-        {/* Вкладки */}
         <div className="flex gap-8 border-b border-gray-200 mb-4">
           <button
             onClick={() => setActiveTab("all")}
@@ -450,7 +350,7 @@ const ModeratorPage = () => {
                 : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            Все места ({allPlaces.length})
+            Все места ({totalAll})
           </button>
           <button
             onClick={() => setActiveTab("moderation")}
@@ -460,48 +360,34 @@ const ModeratorPage = () => {
                 : "text-gray-500 hover:text-gray-700"
             }`}
           >
-            Предложенные ({moderationPlaces.length})
+            Предложенные ({totalModeration})
           </button>
         </div>
 
-        {/* Таблица */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
           <div className="overflow-x-auto">
             <table className="min-w-full divide-y divide-gray-200">
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[#1E1E1E] uppercase tracking-wider">
-                    Название
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[#1E1E1E] uppercase tracking-wider">
-                    Категория
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[#1E1E1E] uppercase tracking-wider">
-                    Адрес
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[#1E1E1E] uppercase tracking-wider">
-                    Статус
-                  </th>
-                  <th className="px-4 py-3 text-left text-xs font-medium text-[#1E1E1E] uppercase tracking-wider">
-                    Действия
-                  </th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-[#1E1E1E] uppercase tracking-wider">Название</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-[#1E1E1E] uppercase tracking-wider">Категория</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-[#1E1E1E] uppercase tracking-wider">Адрес</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-[#1E1E1E] uppercase tracking-wider">Статус</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-[#1E1E1E] uppercase tracking-wider">Действия</th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {currentPlaces.length === 0 ? (
-                  <tr>
-                    <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
-                      Нет мест, соответствующих фильтрам
-                    </td>
-                  </tr>
+                {displayPlaces.length === 0 ? (
+                  <tr><td colSpan={5} className="px-4 py-8 text-center text-gray-400">Нет мест</td></tr>
                 ) : (
-                  currentPlaces.map((place) => (
+                  displayPlaces.map((place) => (
                     <PlaceRow
                       key={place.id}
                       place={place}
                       onEdit={handleEdit}
                       onDelete={handleDelete}
                       onApprove={handleApprove}
+                      isProcessing={processingId === String(place.id)}
                     />
                   ))
                 )}
@@ -510,12 +396,10 @@ const ModeratorPage = () => {
           </div>
         </div>
 
-        {/* Пагинация */}
-        {(currentPage > 1 || hasNextPage) && (
+        {/* Пагинация только для вкладки "Все места" */}
+        {activeTab === "all" && totalPages > 1 && (
           <div className="flex items-center justify-between mt-4">
-            <div className="text-sm text-gray-500">
-              Показано {currentPlaces.length} записей
-            </div>
+            <div className="text-sm text-gray-500">Показано {displayPlaces.length} из {totalAll}</div>
             <div className="flex gap-2">
               <button
                 onClick={() => setCurrentPage((prev) => Math.max(prev - 1, 1))}
@@ -525,11 +409,11 @@ const ModeratorPage = () => {
                 ←
               </button>
               <span className="px-3 py-1 text-sm font-medium">
-                Страница {currentPage}
+                Страница {currentPage} из {totalPages}
               </span>
               <button
-                onClick={() => setCurrentPage((prev) => prev + 1)}
-                disabled={!hasNextPage}
+                onClick={() => setCurrentPage((prev) => Math.min(prev + 1, totalPages))}
+                disabled={currentPage === totalPages}
                 className="px-3 py-1 border border-gray-300 rounded-lg text-sm hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 →
@@ -542,10 +426,7 @@ const ModeratorPage = () => {
       <EditPlaceModal
         place={editingPlace}
         isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-          setEditingPlace(null);
-        }}
+        onClose={() => { setIsModalOpen(false); setEditingPlace(null); }}
         onSave={handleSavePlace}
       />
 

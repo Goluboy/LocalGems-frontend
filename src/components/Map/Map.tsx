@@ -57,20 +57,29 @@ const Map = ({ className = "", places, center }: MapProps) => {
   const [popupPosition, setPopupPosition] = useState<{ x: number; y: number } | null>(null);
 
   const hideTimerRef = useRef<number | null>(null);
-  const mapRef = useRef<unknown>(null);
+  const mapInstanceRef = useRef<unknown>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
   const defaultCenter: [number, number] = [56.8389, 60.6057];
   const mapCenter = center || defaultCenter;
 
   const handleMapLoad = useCallback((ymaps: unknown) => {
-    const yandexMap = ymaps as { map?: unknown };
-    if (yandexMap && yandexMap.map) {
-      mapRef.current = yandexMap.map;
+    const maybeMap = ymaps as { map?: unknown };
+    if (maybeMap && maybeMap.map) {
+      mapInstanceRef.current = maybeMap.map;
     } else if (ymaps) {
-      mapRef.current = ymaps;
+      mapInstanceRef.current = ymaps;
     }
   }, []);
+
+  useEffect(() => {
+    if (!center) return;
+    if (!mapInstanceRef.current) return;
+    const map = mapInstanceRef.current as { setCenter?: (center: [number, number]) => void };
+    if (typeof map.setCenter === "function") {
+      map.setCenter(center);
+    }
+  }, [center]);
 
   useEffect(() => {
     const interval = setInterval(() => {
