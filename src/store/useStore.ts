@@ -38,19 +38,17 @@ export const useStore = create<Store>()(
       userEmail: "",
       token: null,
 
+      // ... все методы без изменений ...
+      
       addFavorite: async (place) => {
         const existing = get().favorites.some((p) => p.id === place.id);
-        if (existing) {
-          return;
-        }
+        if (existing) return;
 
         set((state) => ({
           favorites: [...state.favorites, place],
         }));
 
-        if (!get().isAuth) {
-          return;
-        }
+        if (!get().isAuth) return;
 
         try {
           const placeId = place.guid ?? String(place.id);
@@ -69,9 +67,7 @@ export const useStore = create<Store>()(
           favorites: previousFavorites.filter((p) => p.id !== id),
         });
 
-        if (!get().isAuth) {
-          return;
-        }
+        if (!get().isAuth) return;
 
         try {
           const place = get().favorites.find((item) => item.id === id);
@@ -102,15 +98,15 @@ export const useStore = create<Store>()(
       addPlace: async (placeData: CreateSuggestionPayload) => {
         try {
           const createdPlace = await placesApi.createSuggestion({
-              name: placeData.name,
-              description: placeData.description ?? "",
-              category: placeData.category,
-              address: placeData.address,
-              latitude: placeData.latitude,
-              longitude: placeData.longitude,
-              tags: placeData.tags ?? [],
-              photos: placeData.photos ?? [],
-            });
+            name: placeData.name,
+            description: placeData.description ?? "",
+            category: placeData.category,
+            address: placeData.address,
+            latitude: placeData.latitude,
+            longitude: placeData.longitude,
+            tags: placeData.tags ?? [],
+            photos: placeData.photos ?? [],
+          });
           
           console.log("Место успешно создано:", createdPlace);
         } catch (error) {
@@ -121,6 +117,11 @@ export const useStore = create<Store>()(
 
       loadFavorites: async () => {
         if (!get().isAuth) {
+          // ⭐ Для гостей не очищаем favorites — они могут быть из localStorage
+          if (!get().token) {
+            // Гость — ничего не делаем, favorites остаются как есть
+            return;
+          }
           set({ favorites: [] });
           return;
         }
@@ -130,7 +131,7 @@ export const useStore = create<Store>()(
           set({ favorites });
         } catch (error) {
           console.error("Не удалось загрузить избранное из backend", error);
-          set({ favorites: [] });
+          // ⭐ Не очищаем favorites при ошибке — пусть остаются старые
         }
       },
 
@@ -199,20 +200,48 @@ export const useStore = create<Store>()(
           userEmail: "",
           token: null,
           favorites: [],
+          // ⭐ Опционально: очищать ли маршрут при logout?
+          // route: [],  // Раскомментируй, если нужно
         });
         localStorage.removeItem("authToken");
       },
     }),
     {
-      name: "localgems-auth",
+      name: "localgems-store",  // ⭐ Переименовал (было "localgems-auth")
+      version: 1,               // ⭐ Версия для миграций
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
+        // Аутентификация
         isAuth: state.isAuth,
         isModerator: state.isModerator,
         userEmail: state.userEmail,
         token: state.token,
+        
+        // ⭐ ДОБАВЛЕНО: маршрут сохраняется в localStorage
         route: state.route,
+        
+        // Опционально: избранное для гостей
+        // favorites: state.favorites,
       }),
+      // ⭐ Защита от breaking changes в будущем
+      migrate: (persistedState: any, version: number) => {
+        if (version === 0) {
+          // Если был переход с v0 → v1
+          return {
+            ...persistedState,
+            route: persistedState.route ?? [],
+          };
+        }
+        return persistedState;
+      },
+      // ⭐ Обработка ошибок при чтении из localStorage
+      onRehydrateStorage: () => (state, error) => {
+        if (error) {
+          console.error("Failed to rehydrate store:", error);
+        } else if (state) {
+          console.log("Store rehydrated successfully");
+        }
+      },
     }
   )
 );

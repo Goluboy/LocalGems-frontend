@@ -1,6 +1,23 @@
 import { apiClient } from "./client";
 
-interface CreateRouteRequest {
+export interface RouteWaypointResponse {
+  id: string;
+  placeId: string;
+  orderIndex: number;
+  addedAt: string; // ISO 8601
+}
+
+export interface RouteResponse {
+  id: string;
+  userId: string;
+  name: string;
+  waypoints: RouteWaypointResponse[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+// Request DTO
+interface RouteRequest {
   name: string;
 }
 
@@ -9,39 +26,46 @@ interface AddWaypointRequest {
 }
 
 export const routesApi = {
-  list: async (): Promise<unknown[]> => {
-    const response = await apiClient.get<unknown[]>("/routes");
+  list: async (): Promise<RouteResponse[]> => {
+    const response = await apiClient.get<{ routes: RouteResponse[] }>("/routes");
+    return response.data.routes;
+  },
+
+  getById: async (id: string): Promise<RouteResponse> => {
+    const response = await apiClient.get<RouteResponse>(`/routes/${id}`);
     return response.data;
   },
 
-  getById: async (id: string): Promise<unknown> => {
-    const response = await apiClient.get<unknown>(`/routes/${id}`);
+  create: async (name: string): Promise<RouteResponse> => {
+    const body: RouteRequest = { name };
+    const response = await apiClient.post<RouteResponse>("/routes", body);
     return response.data;
   },
 
-  create: async (name: string): Promise<unknown> => {
-    const response = await apiClient.post<unknown>("/routes", { name } satisfies CreateRouteRequest);
-    return response.data;
-  },
-
-  update: async (id: string, name: string): Promise<unknown> => {
-    const response = await apiClient.put<unknown>(`/routes/${id}`, { name } satisfies CreateRouteRequest);
+  update: async (id: string, name: string): Promise<RouteResponse> => {
+    const body: RouteRequest = { name };
+    const response = await apiClient.put<RouteResponse>(`/routes/${id}`, body);
     return response.data;
   },
 
   remove: async (id: string): Promise<void> => {
     await apiClient.delete(`/routes/${id}`);
+    // Бэк возвращает 204 No Content — тела нет
   },
 
-  addWaypoint: async (id: string, placeId: string): Promise<void> => {
-    await apiClient.post(`/routes/${id}/waypoints`, { placeId } satisfies AddWaypointRequest);
+  addWaypoint: async (id: string, placeId: string): Promise<RouteResponse> => {
+    const body: AddWaypointRequest = { placeId };
+    const response = await apiClient.post<RouteResponse>(
+      `/routes/${id}/waypoints`,
+      body
+    );
+    return response.data;
   },
 
-  removeWaypoint: async (id: string, placeId: string): Promise<void> => {
-    await apiClient.delete(`/routes/${id}/waypoints/${placeId}`);
-  },
-
-  exportYandex: async (id: string): Promise<void> => {
-    await apiClient.get(`/routes/${id}/export/yandex`);
+  removeWaypoint: async (id: string, placeId: string): Promise<RouteResponse> => {
+    const response = await apiClient.delete<RouteResponse>(
+      `/routes/${id}/waypoints/${placeId}`
+    );
+    return response.data;
   },
 };
