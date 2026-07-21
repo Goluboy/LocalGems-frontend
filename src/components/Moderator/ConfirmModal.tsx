@@ -1,4 +1,6 @@
 // src/components/Moderator/ConfirmModal.tsx
+import { useMediaQuery } from "../../hooks/useMediaQuery";
+
 interface ConfirmModalProps {
   isOpen: boolean;
   message: string;
@@ -7,6 +9,8 @@ interface ConfirmModalProps {
 }
 
 const ConfirmModal = ({ isOpen, message, onConfirm, onCancel }: ConfirmModalProps) => {
+  const isMobile = !useMediaQuery("(min-width: 640px)");
+
   if (!isOpen) return null;
 
   return (
@@ -15,7 +19,8 @@ const ConfirmModal = ({ isOpen, message, onConfirm, onCancel }: ConfirmModalProp
       onClick={onCancel}
     >
       <div
-        className="bg-white rounded-2xl shadow-xl w-[400px] p-6"
+        className="bg-white rounded-2xl shadow-xl p-6 w-[90%]"
+        style={{ maxWidth: isMobile ? "320px" : "400px" }}
         onClick={(e) => e.stopPropagation()}
       >
         <p className="text-center text-gray-800 text-base mb-6">{message}</p>

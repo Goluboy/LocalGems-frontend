@@ -1,5 +1,6 @@
 // src/components/Moderator/PlaceRow.tsx
 import type { Place } from "../../data/mockPlaces";
+import StatusBadge from "./StatusBadge";
 
 interface PlaceRowProps {
   place: Place;
@@ -10,14 +11,6 @@ interface PlaceRowProps {
 }
 
 const PlaceRow = ({ place, onEdit, onDelete, onApprove, isProcessing = false }: PlaceRowProps) => {
-  const statusColors = {
-    published: "text-green-600",
-    moderation: "text-orange-500",
-  };
-  const statusLabels = {
-    published: "✅ Опубликовано",
-    moderation: "⏳ На модерации",
-  };
   const id = String(place.id);
 
   return (
@@ -25,8 +18,8 @@ const PlaceRow = ({ place, onEdit, onDelete, onApprove, isProcessing = false }: 
       <td className="px-4 py-3 text-sm text-gray-900">{place.name}</td>
       <td className="px-4 py-3 text-sm text-gray-600">{place.category}</td>
       <td className="px-4 py-3 text-sm text-gray-600">{place.address}</td>
-      <td className={`px-4 py-3 text-sm font-medium ${statusColors[place.status as keyof typeof statusColors]}`}>
-        {statusLabels[place.status as keyof typeof statusLabels]}
+      <td className="px-4 py-3">
+        <StatusBadge status={place.status} />
       </td>
       <td className="px-4 py-3 text-sm whitespace-nowrap">
         {place.status === "moderation" ? (

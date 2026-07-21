@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useStore } from "../../store/useStore";
 import type { Place } from "../../data/mockPlaces";
+import { Check } from "lucide-react";
 
 interface PlaceDetailsModalProps {
   place: Place | null;
@@ -39,24 +40,18 @@ const PlaceDetailsModal = ({ place, isOpen, onClose }: PlaceDetailsModalProps) =
   if (!isOpen || !place) return null;
 
   const normalizedPhotoUrl = (() => {
-  if (!place.photoUrl) return undefined;
-
-  const trimmed = place.photoUrl.trim().replace(/^['"]|['"]$/g, "");
-  if (!trimmed) return undefined;
-
-  const withProtocol = trimmed.startsWith("http://")
-    ? trimmed.replace(/^http:\/\//, "https://")
-    : trimmed.startsWith("https://") || trimmed.startsWith("//")
-      ? trimmed.startsWith("//") ? `https:${trimmed}` : trimmed
-      : `https://${trimmed}`;
-
-  // Если это Unsplash и параметров нет, добавляем их для оптимизации и обхода блокировок CDN
-  if (withProtocol.includes("images.unsplash.com") && !withProtocol.includes("?")) {
-    return `${withProtocol}?auto=format&fit=crop&w=800&q=80`;
-  }
-  
-  // Не обрезаем параметры через split("?")[0]!
-  return withProtocol;
+    if (!place.photoUrl) return undefined;
+    const trimmed = place.photoUrl.trim().replace(/^['"]|['"]$/g, "");
+    if (!trimmed) return undefined;
+    const withProtocol = trimmed.startsWith("http://")
+      ? trimmed.replace(/^http:\/\//, "https://")
+      : trimmed.startsWith("https://") || trimmed.startsWith("//")
+        ? trimmed.startsWith("//") ? `https:${trimmed}` : trimmed
+        : `https://${trimmed}`;
+    if (withProtocol.includes("images.unsplash.com") && !withProtocol.includes("?")) {
+      return `${withProtocol}?auto=format&fit=crop&w=800&q=80`;
+    }
+    return withProtocol;
   })();
 
   const isFavorite = favorites.some((p) => p.id === place.id);
@@ -82,7 +77,7 @@ const PlaceDetailsModal = ({ place, isOpen, onClose }: PlaceDetailsModalProps) =
     const shareText = `${place.name}\n${place.address}\nКоординаты: ${place.lat}, ${place.lng}`;
     if (navigator.clipboard) {
       navigator.clipboard.writeText(shareText).then(() => {
-        setShareMessage("Скопировано ✅");
+        setShareMessage("Скопировано");
         setTimeout(() => setShareMessage("Поделиться"), 2500);
       });
     } else {
@@ -92,7 +87,7 @@ const PlaceDetailsModal = ({ place, isOpen, onClose }: PlaceDetailsModalProps) =
       textarea.select();
       document.execCommand("copy");
       document.body.removeChild(textarea);
-      setShareMessage("Скопировано ✅");
+      setShareMessage("Скопировано");
       setTimeout(() => setShareMessage("Поделиться"), 2500);
     }
   };
@@ -165,8 +160,9 @@ const PlaceDetailsModal = ({ place, isOpen, onClose }: PlaceDetailsModalProps) =
 
             <button
               onClick={handleShare}
-              className="flex-1 h-11 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition"
+              className="flex-1 h-11 bg-gray-100 text-gray-700 text-sm font-medium rounded-lg hover:bg-gray-200 transition flex items-center justify-center gap-1"
             >
+              {shareMessage === "Скопировано" && <Check className="w-4 h-4 text-green-600" />}
               {shareMessage}
             </button>
           </div>

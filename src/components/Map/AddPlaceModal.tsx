@@ -4,6 +4,7 @@ import { categories, categoryToEnumMap } from "../../data/categories";
 import InputField from "../Form/InputField";
 import { useMediaQuery } from "../../hooks/useMediaQuery";
 import { useSwipeToClose } from "../../hooks/useSwipeToClose";
+import { useSuggest } from "../../hooks/useSuggest";
 
 declare global {
   interface Window {
@@ -20,6 +21,13 @@ interface AddPlaceModalProps {
 
 const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
   const isMobile = !useMediaQuery("(min-width: 768px)");
+  const { panelRef, handleTouchStart, handleTouchMove, handleTouchEnd, style } = useSwipeToClose({
+    isOpen,
+    onClose,
+    threshold: 80,
+  });
+
+  const { items, isOpen: isSuggestOpen, setIsOpen: setIsSuggestOpen, fetchSuggest, clearSuggest } = useSuggest();
 
   const [formData, setFormData] = useState({
     name: "",
@@ -39,14 +47,8 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const addressInputRef = useRef<HTMLInputElement>(null);
 
-  const { panelRef, handleTouchStart, handleTouchMove, handleTouchEnd, style } = useSwipeToClose({
-    isOpen,
-    onClose,
-    threshold: 80,
-  });
-
-  // Блокировка прокрутки body
   useEffect(() => {
     if (isOpen) {
       document.body.style.overflow = "hidden";
@@ -70,10 +72,10 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
     setUploadedFiles([]);
     setIsSelecting(false);
     window.isSelectingCoords = false;
+    clearSuggest();
     onClose();
   };
 
-  // Escape
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && isOpen && !isSelecting && !isSubmitting) {
@@ -100,14 +102,28 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
 
   if (!isOpen || isSelecting) return null;
 
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>
-  ) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData((prev) => ({ ...prev, [name]: value }));
     if (name in errors) {
       setErrors((prev) => ({ ...prev, [name]: "" }));
     }
+  };
+
+  const handleAddressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setFormData((prev) => ({ ...prev, address: value }));
+    fetchSuggest(value);
+  };
+
+  const handleAddressSelect = (item: { value: string; coordinates?: [number, number] }) => {
+    setFormData((prev) => ({ ...prev, address: item.value }));
+    if (item.coordinates) {
+      const [lat, lng] = item.coordinates;
+      setFormData((prev) => ({ ...prev, coordinates: `${lat.toFixed(6)}, ${lng.toFixed(6)}` }));
+    }
+    clearSuggest();
+    addressInputRef.current?.blur();
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -116,9 +132,7 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
         const validTypes = ["image/jpeg", "image/png", "image/webp", "image/jpg"];
         const maxSize = 10 * 1024 * 1024;
         if (!validTypes.includes(file.type)) {
-          alert(
-            `Файл "${file.name}" имеет неподдерживаемый формат. Используйте JPG, PNG или WEBP.`
-          );
+          alert(`Файл "${file.name}" имеет неподдерживаемый формат. Используйте JPG, PNG или WEBP.`);
           return false;
         }
         if (file.size > maxSize) {
@@ -222,7 +236,7 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
     setIsSelecting(true);
   };
 
-  // ----- ДЕСКТОПНАЯ ВЕРСИЯ -----
+  // Десктопная версия
   if (!isMobile) {
     return (
       <div
@@ -261,13 +275,10 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
               error={errors.name}
               required
               disabled={isSubmitting}
-              className="h-9"
             />
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Категория *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Категория *</label>
               <select
                 name="category"
                 value={formData.category}
@@ -281,32 +292,49 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
               >
                 <option value="">Выбери категорию</option>
                 {categories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
+                  <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
-              {errors.category && (
-                <p className="text-sm text-red-500 mt-1">{errors.category}</p>
-              )}
+              {errors.category && <p className="text-sm text-red-500 mt-1">{errors.category}</p>}
             </div>
 
-            <InputField
-              label="Адрес"
-              name="address"
-              type="text"
-              value={formData.address}
-              onChange={handleChange}
-              error={errors.address}
-              required
-              disabled={isSubmitting}
-              className="h-9"
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Адрес *</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  ref={addressInputRef}
+                  value={formData.address}
+                  onChange={handleAddressChange}
+                  onFocus={() => setIsSuggestOpen(true)}
+                  onBlur={() => setTimeout(() => setIsSuggestOpen(false), 300)}
+                  placeholder="Введите адрес"
+                  className={`w-full h-9 px-3 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:bg-gray-100 ${
+                    errors.address
+                      ? "border-red-500 focus:ring-red-500"
+                      : "border-gray-300"
+                  }`}
+                  disabled={isSubmitting}
+                />
+                {isSuggestOpen && items.length > 0 && (
+                  <ul className="absolute top-full left-0 w-full z-20 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                    {items.map((item, idx) => (
+                      <li
+                        key={idx}
+                        className="px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm text-gray-700 border-b border-gray-100 last:border-0"
+                        onMouseDown={() => handleAddressSelect(item)}
+                      >
+                        {item.value}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              {errors.address && <p className="text-sm text-red-500 mt-1">{errors.address}</p>}
+            </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Координаты
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Координаты</label>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -329,9 +357,7 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Описание
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Описание</label>
               <textarea
                 name="description"
                 value={formData.description}
@@ -344,9 +370,7 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Фото {uploadedFiles.length > 0 && `(${uploadedFiles.length})`}
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Фото</label>
               <input
                 type="file"
                 accept="image/*"
@@ -358,9 +382,7 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
               />
               <div
                 onClick={triggerFileInput}
-                className={`w-full ${
-                  uploadedFiles.length === 0 ? "h-[60px]" : "min-h-[60px]"
-                } border-2 border-dashed rounded-lg flex items-center justify-center text-sm transition flex-wrap gap-2 p-2 ${
+                className={`w-full ${uploadedFiles.length === 0 ? 'h-[60px]' : 'min-h-[60px]'} border-2 border-dashed rounded-lg flex items-center justify-center text-sm transition flex-wrap gap-2 p-2 ${
                   isSubmitting
                     ? "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed"
                     : "border-gray-300 text-gray-500 hover:border-orange-500 hover:text-orange-500 cursor-pointer"
@@ -412,9 +434,7 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
                 )}
               </div>
               {uploadedFiles.length > 0 && (
-                <p className="text-xs text-gray-400 mt-1">
-                  Выбрано: {uploadedFiles.length} файлов (макс. 10 МБ каждый)
-                </p>
+                <p className="text-xs text-gray-400 mt-1">Выбрано: {uploadedFiles.length} файлов</p>
               )}
             </div>
 
@@ -448,18 +468,19 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
     );
   }
 
-  // ----- МОБИЛЬНАЯ ВЕРСИЯ (Bottom Sheet) -----
+  // Мобильная версия
   return (
-    <div className="fixed inset-0 z-[60]">
+    <div className="fixed inset-0 z-50">
       <div className="absolute inset-0 bg-black/50" onClick={handleClose} />
 
       <div
         ref={panelRef}
-        className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl flex flex-col"
+        className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl flex flex-col will-change-transform"
         style={{
           top: "40px",
           bottom: "0",
           height: "auto",
+          maxHeight: "calc(100vh - 40px)",
           ...style,
         }}
         onTouchStart={handleTouchStart}
@@ -467,12 +488,17 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
         onTouchEnd={handleTouchEnd}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Ручка */}
+        {isSubmitting && (
+          <div className="absolute inset-0 bg-white/80 z-10 flex flex-col items-center justify-center rounded-t-2xl">
+            <div className="w-10 h-10 border-4 border-orange-500 border-t-transparent rounded-full animate-spin mb-3" />
+            <p className="text-gray-700 font-medium">Загрузка фото и сохранение...</p>
+          </div>
+        )}
+
         <div className="flex justify-center pt-3 pb-1 flex-shrink-0">
           <div className="w-10 h-1 bg-gray-300 rounded-full" />
         </div>
 
-        {/* Заголовок */}
         <div className="flex items-center justify-between px-4 pb-3 border-b border-gray-200 flex-shrink-0">
           <h2 className="text-xl font-bold text-gray-900">Добавить место</h2>
           <button
@@ -484,9 +510,8 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
           </button>
         </div>
 
-        {/* Форма */}
         <div className="flex-1 overflow-y-auto p-4 pb-0">
-          <form className="space-y-3">
+          <form onSubmit={handleSubmit} className="space-y-3">
             <InputField
               label="Название"
               name="name"
@@ -500,9 +525,7 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
             />
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Категория *
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Категория *</label>
               <select
                 name="category"
                 value={formData.category}
@@ -516,32 +539,49 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
               >
                 <option value="">Выбери категорию</option>
                 {categories.map((cat) => (
-                  <option key={cat} value={cat}>
-                    {cat}
-                  </option>
+                  <option key={cat} value={cat}>{cat}</option>
                 ))}
               </select>
-              {errors.category && (
-                <p className="text-sm text-red-500 mt-1">{errors.category}</p>
-              )}
+              {errors.category && <p className="text-sm text-red-500 mt-1">{errors.category}</p>}
             </div>
 
-            <InputField
-              label="Адрес"
-              name="address"
-              type="text"
-              value={formData.address}
-              onChange={handleChange}
-              error={errors.address}
-              required
-              disabled={isSubmitting}
-              className="h-11 text-base"
-            />
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Адрес *</label>
+              <div className="relative">
+                <input
+                  type="text"
+                  ref={addressInputRef}
+                  value={formData.address}
+                  onChange={handleAddressChange}
+                  onFocus={() => setIsSuggestOpen(true)}
+                  onBlur={() => setTimeout(() => setIsSuggestOpen(false), 300)}
+                  placeholder="Введите адрес"
+                  className={`w-full h-11 px-3 border rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-orange-500 disabled:bg-gray-100 ${
+                    errors.address
+                      ? "border-red-500 focus:ring-red-500"
+                      : "border-gray-300"
+                  }`}
+                  disabled={isSubmitting}
+                />
+                {isSuggestOpen && items.length > 0 && (
+                  <ul className="absolute top-full left-0 w-full z-20 bg-white border border-gray-200 rounded-lg shadow-lg mt-1 max-h-48 overflow-y-auto">
+                    {items.map((item, idx) => (
+                      <li
+                        key={idx}
+                        className="px-3 py-2 hover:bg-gray-50 cursor-pointer text-sm text-gray-700 border-b border-gray-100 last:border-0"
+                        onMouseDown={() => handleAddressSelect(item)}
+                      >
+                        {item.value}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+              {errors.address && <p className="text-sm text-red-500 mt-1">{errors.address}</p>}
+            </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Координаты
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Координаты</label>
               <div className="flex gap-2">
                 <input
                   type="text"
@@ -564,9 +604,7 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Описание
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Описание</label>
               <textarea
                 name="description"
                 value={formData.description}
@@ -579,9 +617,7 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Фото {uploadedFiles.length > 0 && `(${uploadedFiles.length})`}
-              </label>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Фото</label>
               <input
                 type="file"
                 accept="image/*"
@@ -593,9 +629,7 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
               />
               <div
                 onClick={triggerFileInput}
-                className={`w-full ${
-                  uploadedFiles.length === 0 ? "h-[60px]" : "min-h-[60px]"
-                } border-2 border-dashed rounded-lg flex items-center justify-center text-sm transition flex-wrap gap-2 p-2 ${
+                className={`w-full ${uploadedFiles.length === 0 ? 'h-[60px]' : 'min-h-[60px]'} border-2 border-dashed rounded-lg flex items-center justify-center text-sm transition flex-wrap gap-2 p-2 ${
                   isSubmitting
                     ? "border-gray-200 bg-gray-50 text-gray-400 cursor-not-allowed"
                     : "border-gray-300 text-gray-500 hover:border-orange-500 hover:text-orange-500 cursor-pointer"
@@ -647,13 +681,10 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
                 )}
               </div>
               {uploadedFiles.length > 0 && (
-                <p className="text-xs text-gray-400 mt-1">
-                  Выбрано: {uploadedFiles.length} файлов (макс. 10 МБ каждый)
-                </p>
+                <p className="text-xs text-gray-400 mt-1">Выбрано: {uploadedFiles.length} файлов</p>
               )}
             </div>
 
-            {/* Кнопки прижаты к низу */}
             <div className="flex gap-4 pt-2 pb-4 mt-2 sticky bottom-0 bg-white">
               <button
                 type="button"
@@ -665,7 +696,6 @@ const AddPlaceModal = ({ isOpen, onClose }: AddPlaceModalProps) => {
               </button>
               <button
                 type="submit"
-                onClick={handleSubmit}
                 disabled={isSubmitting}
                 className="flex-1 h-11 bg-orange-500 text-white text-sm font-medium rounded-lg hover:bg-orange-600 transition disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               >
