@@ -339,7 +339,7 @@ export const placesApi = {
   },
 
   deletePlace: async (id: string): Promise<void> => {
-    await apiClient.delete(`/places/${id}`);
+    await apiClient.delete(`/moderation/places/${id}`);
   },
 };
 
